@@ -6,11 +6,15 @@ Requires `prefect` - see https://github.com/prefecthq/prefect
 
 import inspect
 import datajoint as dj
+import logging
 from prefect import Parameter, Flow, task
 from prefect import Client
 from prefect.run_configs import UniversalRun
 from prefect.storage import Local
 from prefect.executors import LocalExecutor
+
+
+log = logging.getLogger(__name__)
 
 
 _populate_settings = {
@@ -94,10 +98,12 @@ class DataJointFlow:
 
             @task(name=self.flow_name + '_trigger')
             def flow_trigger():
+                flow_id = self._flow[0]
                 keys_todo = self.processes[0].key_source - self.processes[self._terminal_process]
+                log.INFO(f'Creating {len(keys_todo)} flow runs - Flow ID: {flow_id}')
                 for key in keys_todo.fetch('KEY'):
                     self.prefect_client.create_flow_run(
-                        flow_id=self._flow[0],
+                        flow_id=flow_id,
                         parameters={"keys": [key]},
                         run_name=str(key),
                         idempotency_key=dj.hash.key_hash(key)
