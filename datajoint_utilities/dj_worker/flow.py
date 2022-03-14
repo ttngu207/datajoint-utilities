@@ -8,7 +8,7 @@ import inspect
 import datajoint as dj
 from prefect import Parameter, Flow, task
 from prefect import Client
-from prefect.run_configs import LocalRun
+from prefect.run_configs import UniversalRun
 from prefect.storage import Local
 from prefect.executors import LocalExecutor
 
@@ -24,21 +24,22 @@ class DataJointFlow:
     A decorator class to convert DataJoint pipeline (or portion of the pipeline) into prefect Flow
     """
 
-    def __init__(self, project_name, flow_name, storage=None, run_config=None, executor=None):
+    def __init__(self, project_name, flow_name, flow_labels=[], storage=None, run_config=None, executor=None):
         self.project_name = project_name
         self.flow_name = flow_name
+        self.flow_labels = flow_labels + [flow_name]
 
         self.processes = {}
         self.tasks = {}
         self.task_count = -1
         self._terminal_process = None
 
-        self.storage = storage or Local()
-        self.run_config = run_config or LocalRun()
+        self.storage = storage or Local(add_default_labels=False)
+        self.run_config = run_config or UniversalRun()
         self.executor = executor or LocalExecutor()
 
         self.prefect_client = Client()
-        self._flow, self._flow_trigger = None, None
+        self._flow, self._trigger_flow = None, None
 
     def __call__(self, process):
         self.task_count += 1
@@ -79,13 +80,13 @@ class DataJointFlow:
                     if i > 0:
                         f.set_dependencies(task=flow_output[i], upstream_tasks=[flow_output[i-1]])
 
-            fid = f.register(self.project_name)
+            fid = f.register(self.project_name, labels=self.flow_labels)
             self._flow = (fid, f)
         return self._flow[-1]
 
     @property
     def trigger_flow(self):
-        if self._flow_trigger is None:
+        if self._trigger_flow is None:
             assert self.flow is not None
 
             if not isinstance(self.processes[0], dj.user_tables.TableMeta):
@@ -94,7 +95,6 @@ class DataJointFlow:
             @task(name=self.flow_name + '_trigger')
             def flow_trigger():
                 keys_todo = self.processes[0].key_source - self.processes[self._terminal_process]
-                # print(f'{len(keys_todo)} new jobs from {self.processes[0].__name__}')
                 for key in keys_todo.fetch('KEY'):
                     self.prefect_client.create_flow_run(
                         flow_id=self._flow[0],
@@ -107,9 +107,9 @@ class DataJointFlow:
                       run_config=self.run_config, executor=self.executor) as f:
                 flow_trigger()
 
-            fid = f.register(self.project_name)
-            self._flow_trigger = (fid, f)
-        return self._flow_trigger[-1]
+            fid = f.register(self.project_name, labels=self.flow_labels)
+            self._trigger_flow = (fid, f)
+        return self._trigger_flow[-1]
 
     def register(self):
         self.flow
