@@ -118,14 +118,14 @@ class DataJointFlow:
                         idempotency_key=dj.hash.key_hash(key)
                     )
 
-                # keys_todo = [str(k) for k in keys_todo]
-                #
-                # scheduled_runs = get_flow_runs(self.flow_name, self.project_name, 'Failed')
-                # runs_to_cancel = [r.id for r in scheduled_runs if r.name not in keys_todo]
-                #
-                # log.info(f'Cancelling {len(runs_to_cancel)} flow run(s)')
-                # for r_id in runs_to_cancel:
-                #     self.prefect_client.set_flow_run_state(r_id, 'Cancelled', version=None)
+                keys_todo = [str(k) for k in keys_todo]
+
+                scheduled_runs = get_flow_runs(self.flow_name, self.project_name, 'Failed')
+                runs_to_cancel = [r.id for r in scheduled_runs if r.name not in keys_todo]
+
+                log.info(f'Cancelling {len(runs_to_cancel)} flow run(s)')
+                for r_id in runs_to_cancel:
+                    self.prefect_client.set_flow_run_state(r_id, 'Cancelled', version=None)
 
             with Flow(self.flow_name + '_trigger', storage=self.storage,
                       run_config=self.run_config, executor=self.executor) as f:
