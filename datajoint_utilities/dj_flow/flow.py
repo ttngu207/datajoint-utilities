@@ -107,14 +107,25 @@ class DataJointFlow:
             def flow_trigger():
                 flow_id = get_flow_id(self.flow_name, self.project_name)
                 keys_todo = self.processes[0].key_source - self.processes[self._terminal_process]
-                log.INFO(f'Creating {len(keys_todo)} flow runs - Flow ID: {flow_id}')
-                for key in keys_todo.fetch('KEY'):
+                keys_todo = keys_todo.fetch('KEY')
+
+                log.info(f'Creating {len(keys_todo)} flow run(s) - Flow ID: {flow_id}')
+                for key in keys_todo:
                     self.prefect_client.create_flow_run(
                         flow_id=flow_id,
                         parameters={"keys": [key]},
                         run_name=str(key),
                         idempotency_key=dj.hash.key_hash(key)
                     )
+
+                keys_todo = [str(k) for k in keys_todo]
+
+                scheduled_runs = get_flow_runs(self.flow_name, self.project_name, 'Failed')
+                runs_to_cancel = [r.id for r in scheduled_runs if r.name not in keys_todo]
+
+                log.info(f'Cancelling {len(runs_to_cancel)} flow run(s)')
+                for r_id in runs_to_cancel:
+                    prefect.client.client.Client.set_flow_run_state(r_id, 'Cancelled', version=None)
 
             with Flow(self.flow_name + '_trigger', storage=self.storage,
                       run_config=self.run_config, executor=self.executor) as f:
