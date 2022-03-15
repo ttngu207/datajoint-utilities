@@ -13,6 +13,8 @@ from prefect.run_configs import UniversalRun
 from prefect.storage import Local
 from prefect.executors import LocalExecutor
 
+from .query import get_flow_runs, get_flow_id
+
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +92,11 @@ class DataJointFlow:
 
     @property
     def trigger_flow(self):
+        """
+        This flow performs accomplish two goals
+        1. schedule new flow runs based on the `key_source` of the parent table
+        2. cancel staled scheduled runs
+        """
         if self._trigger_flow is None:
             assert self.flow is not None
 
@@ -98,7 +105,7 @@ class DataJointFlow:
 
             @task(name=self.flow_name + '_trigger')
             def flow_trigger():
-                flow_id = self._flow[0]
+                flow_id = get_flow_id(self.flow_name, self.project_name)
                 keys_todo = self.processes[0].key_source - self.processes[self._terminal_process]
                 log.INFO(f'Creating {len(keys_todo)} flow runs - Flow ID: {flow_id}')
                 for key in keys_todo.fetch('KEY'):
