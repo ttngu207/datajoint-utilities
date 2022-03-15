@@ -12,6 +12,7 @@ from prefect import Client
 from prefect.run_configs import UniversalRun
 from prefect.storage import Local
 from prefect.executors import LocalExecutor
+from prefect.engine.state import Cancelled
 
 from .query import get_flow_runs, get_flow_id
 
@@ -124,8 +125,9 @@ class DataJointFlow:
                 runs_to_cancel = [r.id for r in scheduled_runs if r.name not in keys_todo]
 
                 log.info(f'Cancelling {len(runs_to_cancel)} flow run(s)')
+                cancelled_state = Cancelled('Invalid scheduled flow run - table(s) may be populated elsewhere')
                 for r_id in runs_to_cancel:
-                    self.prefect_client.set_flow_run_state(r_id, 'Cancelled', version=None)
+                    self.prefect_client.set_flow_run_state(r_id, cancelled_state, version=None)
 
             with Flow(self.flow_name + '_trigger', storage=self.storage,
                       run_config=self.run_config, executor=self.executor) as f:
