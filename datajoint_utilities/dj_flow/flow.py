@@ -94,7 +94,7 @@ class DataJointFlow:
     @property
     def trigger_flow(self):
         """
-        This flow performs accomplish two goals
+        This flow accomplishes two goals
         1. schedule new flow runs based on the `key_source` of the parent table
         2. cancel staled scheduled runs
         """
