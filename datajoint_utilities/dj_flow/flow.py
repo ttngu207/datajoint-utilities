@@ -13,12 +13,22 @@ from prefect.run_configs import UniversalRun
 from prefect.storage import Local
 from prefect.executors import LocalExecutor
 from prefect.engine.state import Cancelled
+from prefect.triggers import all_successful, all_failed, all_finished, any_failed, any_successful, manual_only
 
 from .query import get_flow_runs, get_flow_id
 
 
 log = logging.getLogger(__name__)
 
+
+_prefect_trigger_mapper = {
+    'all_successful': all_successful,
+    'all_failed': all_failed,
+    'all_finished': all_finished,
+    'any_failed': any_failed,
+    'any_successful': any_successful,
+    'manual_only': manual_only,
+}
 
 _populate_settings = {
     "reserve_jobs": True,
@@ -48,11 +58,11 @@ class DataJointFlow:
         self.prefect_client = Client()
         self._flow, self._trigger_flow = None, None
 
-    def __call__(self, process):
+    def __call__(self, process, trigger='all_successful'):
         self.task_count += 1
         self.processes[self.task_count] = process
         if isinstance(process, dj.user_tables.TableMeta):
-            @task(name=process.__name__)
+            @task(name=process.__name__, trigger=_prefect_trigger_mapper[trigger])
             def flow_task(restrictions):
                 job_errors = process.populate(*restrictions, **_populate_settings)
                 if len(job_errors):
