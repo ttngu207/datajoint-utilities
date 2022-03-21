@@ -76,7 +76,7 @@ class DataJointFlow:
             self.tasks[self.task_count] = flow_task
             self._terminal_process = self.task_count
         elif inspect.isfunction(process) or inspect.ismethod(process):
-            @task(name=process.__name__)
+            @task(name=process.__name__, trigger=_prefect_trigger_mapper[trigger])
             def flow_task(restrictions):
                 process()
             self.tasks[self.task_count] = flow_task
