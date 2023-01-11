@@ -1,2 +1,2 @@
-datajoint>=0.12.8
+datajoint @ git+https://github.com/ttngu207/datajoint-python.git@populate_success_count
 termcolor

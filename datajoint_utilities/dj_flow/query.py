@@ -38,30 +38,32 @@ def get_flow_id(flow_name, project_name):
 
     result = Client().graphql(query)
 
-    flow_data = result.data.flow
+    flow_data = result.data.main_flow
 
     assert len(flow_data) == 1
 
     return flow_data[0].id
 
 
-def get_flow_runs(flow_name, project_name, state='scheduled', limit=100):
+def get_flow_runs(flow_name, project_name, state="scheduled", limit=100):
 
     order = {"created": EnumValue("desc")}
 
     where = {
         "flow": {
-            "_and": {"name": {"_eq": flow_name},
-                     "project": {"name": {"_eq": project_name}}
-                     }
+            "_and": {
+                "name": {"_eq": flow_name},
+                "project": {"name": {"_eq": project_name}},
+            }
         },
-        "state": { "_eq": state }
+        "state": {"_eq": state},
     }
 
     query = {
         "query": {
             with_args(
-                "flow_run", {"where": where, "limit": limit, "order_by": order},
+                "flow_run",
+                {"where": where, "limit": limit, "order_by": order},
             ): {
                 "flow": {"name": True},
                 "id": True,
@@ -77,4 +79,3 @@ def get_flow_runs(flow_name, project_name, state='scheduled', limit=100):
 
     flow_run_data = result.data.flow_run
     return flow_run_data
-
