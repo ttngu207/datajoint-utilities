@@ -9,6 +9,8 @@ from prefect import task, flow
 from prefect.deployments import Deployment, run_deployment
 from prefect.orion.schemas.schedules import IntervalSchedule
 
+from prefect.filesystems import LocalFileSystem
+
 logger = dj.logger
 
 _populate_settings = {
@@ -25,10 +27,7 @@ class DataJointFlow:
     def __init__(
         self,
         flow_name,
-        flow_labels=[],
         storage=None,
-        run_config=None,
-        executor=None,
         trigger_poll_interval=600,
     ):
         self.flow_name = flow_name
@@ -39,9 +38,7 @@ class DataJointFlow:
         self.task_count = -1
         self._terminal_process = None
 
-        self.storage = storage or Local(add_default_labels=False)
-        self.run_config = run_config or UniversalRun()
-        self.executor = executor or LocalExecutor()
+        self.storage = storage or LocalFileSystem()
 
         self.flows, self.deployments = {}, {}
 
@@ -95,15 +92,7 @@ class DataJointFlow:
                             keys, wait_for=[tasks_output[task_idx - 1]]
                         )
 
-            _deployment = Deployment.build_from_flow(
-                flow=_flow,
-                name=f"{_flow.name}_main-deployment",
-                work_queue_name=f"{_flow.name}_main-queue",
-            )
-            d_id = _deployment.apply()
-
             self.flows["main"] = _flow
-            self.deployments["main"] = (d_id, _deployment)
 
         return self.flows["main"]
 
@@ -144,19 +133,33 @@ class DataJointFlow:
             def _trigger():
                 flow_trigger()
 
-            _deployment = Deployment.build_from_flow(
-                flow=_trigger,
-                name=f"{_flow.name}_trigger-deployment",
-                work_queue_name=f"{_flow.name}_trigger-queue",
-                schedule=IntervalSchedule(interval=self.trigger_interval),
-            )
-            d_id = _deployment.apply()
-
             self.flows["trigger"] = _trigger
-            self.deployments["trigger"] = (d_id, _deployment)
 
         return self.flows["trigger"]
 
     def apply(self):
-        self.main_flow
-        self.trigger_flow
+        currentframe = inspect.currentframe()
+
+        print(inspect.getouterframes(inspect.currentframe()))
+
+        return currentframe
+
+        #
+        # main_deployment = Deployment.build_from_flow(
+        #     flow=self.main_flow,
+        #     name=f"{self.main_flow.name}-deployment",
+        #     storage=self.storage,
+        #     work_queue_name=f"{self.main_flow.name}-queue",
+        # )
+        # d_id = main_deployment.apply()
+        # self.deployments["main"] = (d_id, main_deployment)
+        #
+        # trigger_deployment = Deployment.build_from_flow(
+        #     flow=self.trigger,
+        #     name=f"{self.trigger_flow.name}-deployment",
+        #     work_queue_name=f"{self.trigger_flow.name}-queue",
+        #     storage=self.storage,
+        #     schedule=IntervalSchedule(interval=self.trigger_interval),
+        # )
+        # d_id = trigger_deployment.apply()
+        # self.deployments["trigger"] = (d_id, trigger_deployment)
