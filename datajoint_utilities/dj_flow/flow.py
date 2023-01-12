@@ -5,6 +5,10 @@ Requires `prefect` - see https://github.com/prefecthq/prefect
 
 import inspect
 import datajoint as dj
+import pathlib
+import re
+from datetime import datetime, timedelta
+
 from prefect import task, flow
 from prefect.deployments import Deployment, run_deployment
 from prefect.orion.schemas.schedules import IntervalSchedule
@@ -41,6 +45,11 @@ class DataJointFlow:
         self.storage = storage or LocalFileSystem()
 
         self.flows, self.deployments = {}, {}
+
+        self._main_flow_name = self.flow_name
+        self._trigger_flow_name = self._main_flow_name + "_trigger"
+        self._main_flow_deploy_name = self._main_flow_name + "-deploy"
+        self._trigger_flow_deploy_name = self._trigger_flow_name + "-deploy"
 
     def __call__(self, process):
         self.task_count += 1
@@ -81,7 +90,7 @@ class DataJointFlow:
     def main_flow(self):
         if "main" not in self.flows:
 
-            @flow(name=self.flow_name)
+            @flow(name=self._main_flow_name)
             def _flow(keys):
                 tasks_output = {}
                 for task_idx, flowtask in self.tasks.items():
@@ -109,57 +118,77 @@ class DataJointFlow:
             if not isinstance(self.processes[0], dj.user_tables.TableMeta):
                 return None
 
-            @task(name=self.flow_name + "_trigger")
-            def flow_trigger():
+            @task(name="create_main_runs")
+            def create_main_runs():
                 keys_todo = (
                     self.processes[0].key_source
                     - self.processes[self._terminal_process]
                 )
                 keys_todo = keys_todo.fetch("KEY")
 
+                # Queue up flow runs for main_flow
                 logger.info(
                     f"Creating {len(keys_todo)} flow run(s) - Flow: {self.flows['main'].name}"
                 )
                 for key in keys_todo:
                     run_deployment(
-                        name=f"{self.flows['main'].name}/{self.deployments['main'][-1].name}",
+                        name=self._main_flow_deploy_name,
                         parameters={"keys": [key]},
                         flow_run_name=str(key),
                         idempotency_key=dj.hash.key_hash(key),
                         timeout=0,
                     )
 
-            @flow(name=self.flow_name + "_trigger")
+            @task(name="create_trigger_runs")
+            def create_trigger_run():
+                # Queue up one next flow run for trigger_flow
+                run_deployment(
+                    name=self._trigger_flow_deploy_name,
+                    timeout=0,
+                    scheduled_time=datetime.utcnow()
+                    + timedelta(seconds=self.trigger_interval),
+                )
+
+            @flow(name=self._trigger_flow_name)
             def _trigger():
-                flow_trigger()
+                create_main_runs()
+                create_trigger_run()
 
             self.flows["trigger"] = _trigger
 
         return self.flows["trigger"]
 
-    def apply(self):
-        currentframe = inspect.currentframe()
+    def deploy(self):
+        if "main" in self.deployments and "trigger" in self.deployments:
+            return
 
-        print(inspect.getouterframes(inspect.currentframe()))
+        calling_frame = inspect.getouterframes(inspect.currentframe())[1]
 
-        return currentframe
+        datajoint_flow_name = re.search(
+            r"\s?(\S+)\.deploy\(\)", calling_frame.code_context[0]
+        ).groups()[0]
 
-        #
-        # main_deployment = Deployment.build_from_flow(
-        #     flow=self.main_flow,
-        #     name=f"{self.main_flow.name}-deployment",
-        #     storage=self.storage,
-        #     work_queue_name=f"{self.main_flow.name}-queue",
-        # )
-        # d_id = main_deployment.apply()
-        # self.deployments["main"] = (d_id, main_deployment)
-        #
-        # trigger_deployment = Deployment.build_from_flow(
-        #     flow=self.trigger,
-        #     name=f"{self.trigger_flow.name}-deployment",
-        #     work_queue_name=f"{self.trigger_flow.name}-queue",
-        #     storage=self.storage,
-        #     schedule=IntervalSchedule(interval=self.trigger_interval),
-        # )
-        # d_id = trigger_deployment.apply()
-        # self.deployments["trigger"] = (d_id, trigger_deployment)
+        calling_package = calling_frame.frame.f_globals["__package__"]
+        calling_file = pathlib.Path(calling_frame.frame.f_globals["__file__"]).name
+
+        main_deployment = Deployment.build_from_flow(
+            flow=self.main_flow,
+            name=self._main_flow_deploy_name,
+            storage=self.storage,
+            work_queue_name=f"{self.main_flow.name}-queue",
+            entrypoint=f"{calling_package.replace('.', '/')}/{calling_file}:{datajoint_flow_name}.main_flow",
+        )
+        self.deployments["main"] = main_deployment
+
+        trigger_deployment = Deployment.build_from_flow(
+            flow=self.trigger_flow,
+            name=self._trigger_flow_deploy_name,
+            work_queue_name=f"{self.trigger_flow.name}-queue",
+            storage=self.storage,
+            schedule=IntervalSchedule(interval=60 * 60 * 24),
+            entrypoint=f"{calling_package.replace('.', '/')}/{calling_file}:{datajoint_flow_name}.trigger_flow",
+        )
+        self.deployments["trigger"] = trigger_deployment
+
+        self.deployments["main"].apply()
+        self.deployments["trigger"].apply()
