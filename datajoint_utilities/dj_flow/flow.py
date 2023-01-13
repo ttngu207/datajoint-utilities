@@ -176,7 +176,7 @@ class DataJointFlow:
             name=self._main_flow_deploy_name,
             storage=self.storage,
             work_queue_name=f"{self.main_flow.name}-queue",
-            entrypoint=f"{calling_package.replace('.', '/')}/{calling_file}:{datajoint_flow_name}.main_flow",
+            entrypoint=f"{calling_package.replace('.', '/')}/{calling_file}:{datajoint_flow_name}_main_flow",
         )
         self.deployments["main"] = main_deployment
 
@@ -186,7 +186,7 @@ class DataJointFlow:
             work_queue_name=f"{self.trigger_flow.name}-queue",
             storage=self.storage,
             schedule=IntervalSchedule(interval=60 * 60 * 24),
-            entrypoint=f"{calling_package.replace('.', '/')}/{calling_file}:{datajoint_flow_name}.trigger_flow",
+            entrypoint=f"{calling_package.replace('.', '/')}/{calling_file}:{datajoint_flow_name}_trigger_flow",
         )
         self.deployments["trigger"] = trigger_deployment
 
