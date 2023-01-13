@@ -132,7 +132,7 @@ class DataJointFlow:
                 )
                 for key in keys_todo:
                     run_deployment(
-                        name=self._main_flow_deploy_name,
+                        name=f"{self._main_flow_name}/{self._main_flow_deploy_name}",
                         parameters={"keys": [key]},
                         flow_run_name=str(key),
                         idempotency_key=dj.hash.key_hash(key),
@@ -143,7 +143,7 @@ class DataJointFlow:
             def create_trigger_run():
                 # Queue up one next flow run for trigger_flow
                 run_deployment(
-                    name=self._trigger_flow_deploy_name,
+                    name=f"{self._trigger_flow_name}/{self._trigger_flow_deploy_name}",
                     timeout=0,
                     scheduled_time=datetime.utcnow()
                     + timedelta(seconds=self.trigger_interval),
