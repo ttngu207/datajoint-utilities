@@ -4,6 +4,9 @@ import datajoint as dj
 import json
 
 
+logger = dj.logger
+
+
 class PopulateHandler(StreamHandler):
     """
     Custom Log Handler to parse and handle DataJoint logs related to populating tables.
@@ -11,26 +14,31 @@ class PopulateHandler(StreamHandler):
 
     _patterns = ("Making", "Error making", "Success making")
 
-    def __init__(
-        self, notifiers, full_table_names, on_start=True, on_success=True, on_error=True
-    ):
+    def __init__(self, notifiers, notif_config=None, **kwargs):
         """
         :param notifiers: list of instantiated "Notifier"
-        :param full_table_names: list of full table names to get notified about
-        :param on_start: (bool) notify on populate start (default=True)
-        :param on_success: (bool) notify on populate finishes successfully (default=True)
-        :param on_error: (bool) notify on populate errors out (default=True)
+        :param notif_config: a dict with keys being the table_full_names and value as following dict {'start': True, 'success': True, 'error': True}
         """
 
         StreamHandler.__init__(self)
         assert all(hasattr(notifier, "notify") for notifier in notifiers)
         self.notifiers = notifiers
-        self.full_table_names = full_table_names
-        self._status_to_notify = {
-            "start": on_start,
-            "success": on_success,
-            "error": on_error,
-        }
+
+        if notif_config is None and "full_table_names" in kwargs:
+            logger.warning(
+                "The arguments `full_table_names`, `on_start`, `on_success`, `on_error` are depreciated. Use `notif_config` argument instead (see doctring for more info)"
+            )
+            notif_config = {
+                n: {
+                    "start": kwargs["on_start"],
+                    "success": kwargs["on_success"],
+                    "error": kwargs["on_error"],
+                }
+                for n in kwargs["full_table_names"]
+            }
+
+        assert notif_config, "`notif_config` must be specified"
+        self.notif_config = notif_config
 
     def emit(self, record):
         msg = self.format(record)
@@ -45,15 +53,14 @@ class PopulateHandler(StreamHandler):
         error_message = error_message.replace(" - ", "") if error_message else ""
 
         status = {
-            "Making": "START",
-            "Success making": "SUCCESS",
-            "Error making": "ERROR",
+            "Making": "start",
+            "Success making": "success",
+            "Error making": "error",
         }[status]
 
-        if (
-            not self._status_to_notify[status.lower()]
-            or full_table_name not in self.full_table_names
-        ):
+        if full_table_name not in self.notif_config or not self.notif_config.get(
+            full_table_name, {}
+        ).get(status, False):
             return
 
         schema_name, table_name = full_table_name.split(".")
@@ -62,12 +69,12 @@ class PopulateHandler(StreamHandler):
 
         for notifier in self.notifiers:
             notifier.notify(
-                title=f"DataJoint populate - {schema_name}.{table_name} - {status}",
+                title=f"DataJoint populate - {schema_name}.{table_name} - {status.upper()}",
                 message=msg,
                 schema_name=schema_name,
                 table_name=table_name,
                 key=key,
-                status=status,
+                status=status.upper(),
                 error_message=error_message,
                 **key,
             )
