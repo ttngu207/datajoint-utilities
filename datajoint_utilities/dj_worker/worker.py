@@ -476,7 +476,7 @@ def purge_invalid_jobs(JobTable, table):
     """
 
     if hasattr(table, "purge_invalid_jobs"):
-        table.purge_invalid_jobs()
+        table().purge_invalid_jobs()
         return
 
     jobs_query = JobTable & {"table_name": table.table_name}
