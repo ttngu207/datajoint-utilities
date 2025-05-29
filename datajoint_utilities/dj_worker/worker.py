@@ -475,6 +475,10 @@ def purge_invalid_jobs(JobTable, table):
     This is potentially a time-consuming process - but should not expect to have to run very often
     """
 
+    if hasattr(table, "purge_invalid_jobs"):
+        table.purge_invalid_jobs()
+        return
+
     jobs_query = JobTable & {"table_name": table.table_name}
 
     if not jobs_query:
