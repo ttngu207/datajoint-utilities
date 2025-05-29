@@ -299,7 +299,7 @@ class RegisteredWorker(dj.Manual):
                 cls.Process
                 & {"worker_name": worker_name, "process": process_name}
                 & "key_source_sql is not NULL"
-            ).fetch1(as_dict=True)
+            ).fetch1()
         except dj.errors.DataJointError:
             raise ValueError(
                 f"Process '{process_name}' not found for worker '{worker_name}'"
@@ -314,18 +314,24 @@ class RegisteredWorker(dj.Manual):
             schema = dj.Schema(schema_name, connection=cls.connection, create_schema=False, create_tables=False)
             jobs_table = schema.jobs
 
+            # Define scheduling event
+            __scheduled_event = {
+                "table_name": f"__{table_name}__",
+                "__type__": "jobs scheduling event"
+            }
+
             # First check if we have any recent jobs
             if min_scheduling_interval > 0:
-                recent_jobs = len(
-                    jobs_table
-                    & {"status": "scheduled", "table_name": table_name}
-                    & f"timestamp <= UTC_TIMESTAMP()"
-                    & f"timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {min_scheduling_interval} SECOND)"
+                recent_scheduling_event = (
+                    jobs_table.proj(last_scheduled="TIMESTAMPDIFF(SECOND, timestamp, UTC_TIMESTAMP())")
+                    & {"table_name": __scheduled_event["table_name"]}
+                    & {"key_hash": dj.hash.key_hash(__scheduled_event)}
+                    & f"last_scheduled <= {min_scheduling_interval}"
                 )
-                if recent_jobs > 0:
-                    logger.debug(
-                        f"Skipping job scheduling for worker '{worker_name}', process '{process_name}' - "
-                        f"found {recent_jobs} jobs created within last {min_scheduling_interval} seconds"
+                if recent_scheduling_event:
+                    logger.info(
+                        f"Skip jobs scheduling for worker '{worker_name}', process '{process_name}' "
+                        f"(last scheduled {recent_scheduling_event.fetch1('last_scheduled')} seconds ago)"
                     )
                     return 0
 
@@ -336,8 +342,16 @@ class RegisteredWorker(dj.Manual):
             )
             
             schedule_count = 0
-            for key in cls.connection.query(incomplete_sql).fetch(as_dict=True):
-                schedule_count += jobs_table.schedule(table_name, key)
+            with cls.connection.transaction:
+                for key in cls.connection.query(incomplete_sql).fetch(as_dict=True):
+                    schedule_count += jobs_table.schedule(table_name, key)
+                
+                # Record scheduling event
+                jobs_table.ignore(
+                    __scheduled_event["table_name"],
+                    __scheduled_event,
+                    message=f"Jobs scheduling event: {__scheduled_event['table_name']}"
+                )
             
             logger.info(
                 f"{schedule_count} new jobs scheduled for worker '{worker_name}', process '{process_name}'"
