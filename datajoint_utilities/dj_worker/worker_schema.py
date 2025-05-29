@@ -263,6 +263,92 @@ class RegisteredWorker(dj.Manual):
             total, incomplete = np.nan, np.nan
         return total, incomplete
 
+    @classmethod
+    def schedule_jobs(
+        cls,
+        worker_name: str,
+        process_name: str,
+        min_scheduling_interval: int = None
+    ) -> int:
+        """
+        Schedule new jobs for a specific worker's process based on incomplete key source entries.
+        
+        This method:
+        1. Finds the registered process for the specified worker and process name
+        2. Gets incomplete key source entries
+        3. Schedules new jobs for those entries
+        
+        Args:
+            worker_name (str): Name of the worker to schedule jobs for
+            process_name (str): Name of the process to schedule jobs for
+            min_scheduling_interval (int, optional): Minimum time in seconds that must have passed since last job scheduling.
+                If None, uses the value from dj.config["min_scheduling_interval"]. Defaults to None.
+        
+        Returns:
+            int: Number of jobs scheduled
+            
+        Raises:
+            ValueError: If worker_name or process_name is not found in registered processes
+        """
+        if min_scheduling_interval is None:
+            min_scheduling_interval = dj.config["min_scheduling_interval"]
+
+        # Find the registered process for this worker and process
+        try:
+            process = (
+                cls.Process
+                & {"worker_name": worker_name, "process": process_name}
+                & "key_source_sql is not NULL"
+            ).fetch1(as_dict=True)
+        except dj.errors.DataJointError:
+            raise ValueError(
+                f"Process '{process_name}' not found for worker '{worker_name}'"
+            )
+
+        # Get schema and jobs table
+        target_full_table_name = process["full_table_name"]
+        schema_name = target_full_table_name.split(".")[0].strip("`")
+        table_name = target_full_table_name.split(".")[1].strip("`")
+        
+        try:
+            schema = dj.Schema(schema_name, connection=cls.connection, create_schema=False, create_tables=False)
+            jobs_table = schema.jobs
+
+            # First check if we have any recent jobs
+            if min_scheduling_interval > 0:
+                recent_jobs = len(
+                    jobs_table
+                    & {"status": "scheduled", "table_name": table_name}
+                    & f"timestamp <= UTC_TIMESTAMP()"
+                    & f"timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {min_scheduling_interval} SECOND)"
+                )
+                if recent_jobs > 0:
+                    logger.debug(
+                        f"Skipping job scheduling for worker '{worker_name}', process '{process_name}' - "
+                        f"found {recent_jobs} jobs created within last {min_scheduling_interval} seconds"
+                    )
+                    return 0
+
+            # Get incomplete key source entries and schedule jobs
+            incomplete_sql = cls.get_incomplete_key_source_sql(
+                process["key_source_sql"],
+                target_full_table_name
+            )
+            
+            schedule_count = 0
+            for key in cls.connection.query(incomplete_sql).fetch(as_dict=True):
+                schedule_count += jobs_table.schedule(table_name, key)
+            
+            logger.info(
+                f"{schedule_count} new jobs scheduled for worker '{worker_name}', process '{process_name}'"
+            )
+            
+            return schedule_count
+
+        except dj.errors.DataJointError as e:
+            logger.error(f"Error accessing schema {schema_name}: {str(e)}")
+            return 0
+
 
 class WorkerLog(dj.Manual):
     definition = """
