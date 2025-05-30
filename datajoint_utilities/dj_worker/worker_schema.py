@@ -52,7 +52,7 @@ class RegisteredWorker(dj.Manual):
             worker_name (str, optional): Filter results by specific worker name. Defaults to None.
             process_name (str, optional): Filter results by specific process name. Defaults to None.
             schedule_jobs (bool, optional): If True, schedule new jobs for incomplete key_source entries. Defaults to True.
-            
+
         Returns:
             pd.DataFrame: DataFrame containing workflow status with columns:
                 - total: Total number of entries in key_source
@@ -346,7 +346,9 @@ class RegisteredWorker(dj.Manual):
             
             schedule_count = 0
             with cls.connection.transaction:
-                for key in cls.connection.query(incomplete_sql).fetch(as_dict=True):
+                cursor = cls.connection.query(incomplete_sql)
+                for item in cursor.fetchall():
+                    key = {attr_name: val for (attr_name, *_), val in zip(cursor.description, item)}
                     schedule_count += jobs_table.schedule(table_name, key)
                 
                 # Record scheduling event
