@@ -39,7 +39,7 @@ class RegisteredWorker(dj.Manual):
         """
 
     @classmethod
-    def get_workers_progress(cls, worker_name: str = None, process_name: str = None) -> pd.DataFrame:
+    def get_workers_progress(cls, worker_name: str = None, process_name: str = None, schedule_jobs: bool = True) -> pd.DataFrame:
         """
         Get the operation progress for all registered workers, showing job status for each AutoPopulate process.
 
@@ -51,7 +51,8 @@ class RegisteredWorker(dj.Manual):
         Args:
             worker_name (str, optional): Filter results by specific worker name. Defaults to None.
             process_name (str, optional): Filter results by specific process name. Defaults to None.
-
+            schedule_jobs (bool, optional): If True, schedule new jobs for incomplete key_source entries. Defaults to True.
+            
         Returns:
             pd.DataFrame: DataFrame containing workflow status with columns:
                 - total: Total number of entries in key_source
@@ -119,6 +120,8 @@ class RegisteredWorker(dj.Manual):
         for r_idx, r in workflow_status.iterrows():
             if not r.key_source_sql:
                 continue
+            if schedule_jobs:
+                cls.schedule_jobs(r.worker_name, r.process)
             (
                 workflow_status.loc[r_idx, "total"],
                 workflow_status.loc[r_idx, "incomplete"],
