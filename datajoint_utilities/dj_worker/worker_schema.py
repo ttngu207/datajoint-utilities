@@ -319,7 +319,7 @@ class RegisteredWorker(dj.Manual):
 
             # Define scheduling event
             __scheduled_event = {
-                "table_name": f"__{table_name}__",
+                "table_name": table_name,
                 "__type__": "jobs scheduling event"
             }
 
@@ -327,7 +327,7 @@ class RegisteredWorker(dj.Manual):
             if min_scheduling_interval > 0:
                 recent_scheduling_event = (
                     jobs_table.proj(last_scheduled="TIMESTAMPDIFF(SECOND, timestamp, UTC_TIMESTAMP())")
-                    & {"table_name": __scheduled_event["table_name"]}
+                    & {"table_name": f"__{table_name}__"}
                     & {"key_hash": dj.hash.key_hash(__scheduled_event)}
                     & f"last_scheduled <= {min_scheduling_interval}"
                 )
@@ -353,7 +353,7 @@ class RegisteredWorker(dj.Manual):
                 
                 # Record scheduling event
                 jobs_table.ignore(
-                    __scheduled_event["table_name"],
+                    f"__{table_name}__",
                     __scheduled_event,
                     message=f"Jobs scheduling event: {__scheduled_event['table_name']}"
                 )
