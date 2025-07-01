@@ -361,7 +361,7 @@ class DataJointWorker:
         """
         for process_type, process, _ in self._processes_to_run:
             if process_type == "dj_table":
-                process.purge_jobs()
+                process.cleanup_jobs()
 
     def run(self) -> None:
         """
