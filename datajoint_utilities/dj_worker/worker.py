@@ -301,7 +301,9 @@ class DataJointWorker:
             )
             if process_type == "dj_table":
                 process.schedule_jobs()
-                status = process.populate(**{**_populate_settings, **kwargs, "schedule_jobs": False})
+                status = process.populate(
+                    **{**_populate_settings, **kwargs, "schedule_jobs": False}
+                )
                 if isinstance(status, dict):
                     success_count += status["success_count"] + len(status["error_list"])
             elif process_type == "function":

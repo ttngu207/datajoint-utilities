@@ -39,7 +39,12 @@ class RegisteredWorker(dj.Manual):
         """
 
     @classmethod
-    def get_workers_progress(cls, worker_name: str = None, process_name: str = None, schedule_jobs: bool = True) -> pd.DataFrame:
+    def get_workers_progress(
+        cls,
+        worker_name: str = None,
+        process_name: str = None,
+        schedule_jobs: bool = True,
+    ) -> pd.DataFrame:
         """
         Get the operation progress for all registered workers, showing job status for each AutoPopulate process.
 
@@ -89,7 +94,9 @@ class RegisteredWorker(dj.Manual):
             [n.split(".")[0].strip("`") for n in workflow_status.table_name if n]
         )
         pipeline_schemas = {
-            n: dj.Schema(n, connection=cls.connection, create_schema=False, create_tables=False)
+            n: dj.Schema(
+                n, connection=cls.connection, create_schema=False, create_tables=False
+            )
             for n in schema_names
         }
 
@@ -153,7 +160,9 @@ class RegisteredWorker(dj.Manual):
         return workflow_status
 
     @classmethod
-    def get_incomplete_key_source_sql(cls, key_source_sql: str, target_full_table_name: str) -> tuple[str, str]:
+    def get_incomplete_key_source_sql(
+        cls, key_source_sql: str, target_full_table_name: str
+    ) -> tuple[str, str]:
         """
         Build a SQL statement to find incomplete key_source entries in the target table.
 
@@ -216,7 +225,7 @@ class RegisteredWorker(dj.Manual):
         key_source_sql: str,
         target_full_table_name: str,
         andlist_restriction: AndList = None,
-        return_sql: bool = False
+        return_sql: bool = False,
     ) -> tuple[int, int] | tuple[str, str]:
         """
         Count total and incomplete key_source entries in the target table.
@@ -268,28 +277,25 @@ class RegisteredWorker(dj.Manual):
 
     @classmethod
     def schedule_jobs(
-        cls,
-        worker_name: str,
-        process_name: str,
-        min_scheduling_interval: int = None
+        cls, worker_name: str, process_name: str, min_scheduling_interval: int = None
     ) -> int:
         """
         Schedule new jobs for a specific worker's process based on incomplete key source entries.
-        
+
         This method:
         1. Finds the registered process for the specified worker and process name
         2. Gets incomplete key source entries
         3. Schedules new jobs for those entries
-        
+
         Args:
             worker_name (str): Name of the worker to schedule jobs for
             process_name (str): Name of the process to schedule jobs for
             min_scheduling_interval (int, optional): Minimum time in seconds that must have passed since last job scheduling.
                 If None, uses the value from dj.config["min_scheduling_interval"]. Defaults to None.
-        
+
         Returns:
             int: Number of jobs scheduled
-            
+
         Raises:
             ValueError: If worker_name or process_name is not found in registered processes
         """
@@ -312,21 +318,28 @@ class RegisteredWorker(dj.Manual):
         target_full_table_name = process["full_table_name"]
         schema_name = target_full_table_name.split(".")[0].strip("`")
         table_name = target_full_table_name.split(".")[1].strip("`")
-        
+
         try:
-            schema = dj.Schema(schema_name, connection=cls.connection, create_schema=False, create_tables=False)
+            schema = dj.Schema(
+                schema_name,
+                connection=cls.connection,
+                create_schema=False,
+                create_tables=False,
+            )
             jobs_table = schema.jobs
 
             # Define scheduling event
             __scheduled_event = {
                 "table_name": table_name,
-                "__type__": "jobs scheduling event"
+                "__type__": "jobs scheduling event",
             }
 
             # First check if we have any recent jobs
             if min_scheduling_interval > 0:
                 recent_scheduling_event = (
-                    jobs_table.proj(last_scheduled="TIMESTAMPDIFF(SECOND, timestamp, UTC_TIMESTAMP())")
+                    jobs_table.proj(
+                        last_scheduled="TIMESTAMPDIFF(SECOND, timestamp, UTC_TIMESTAMP())"
+                    )
                     & {"table_name": f"__{table_name}__"}
                     & {"key_hash": dj.hash.key_hash(__scheduled_event)}
                     & f"last_scheduled <= {min_scheduling_interval}"
@@ -340,28 +353,30 @@ class RegisteredWorker(dj.Manual):
 
             # Get incomplete key source entries and schedule jobs
             incomplete_sql = cls.get_incomplete_key_source_sql(
-                process["key_source_sql"],
-                target_full_table_name
+                process["key_source_sql"], target_full_table_name
             )
-            
+
             schedule_count = 0
             with cls.connection.transaction:
                 cursor = cls.connection.query(incomplete_sql)
                 for item in cursor.fetchall():
-                    key = {attr_name: val for (attr_name, *_), val in zip(cursor.description, item)}
+                    key = {
+                        attr_name: val
+                        for (attr_name, *_), val in zip(cursor.description, item)
+                    }
                     schedule_count += jobs_table.schedule(table_name, key)
-                
+
                 # Record scheduling event
                 jobs_table.ignore(
                     f"__{table_name}__",
                     __scheduled_event,
-                    message=f"Jobs scheduling event: {__scheduled_event['table_name']}"
+                    message=f"Jobs scheduling event: {__scheduled_event['table_name']}",
                 )
-            
+
             logger.info(
                 f"{schedule_count} new jobs scheduled for worker '{worker_name}', process '{process_name}'"
             )
-            
+
             return schedule_count
 
         except dj.errors.DataJointError as e:
