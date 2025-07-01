@@ -300,7 +300,8 @@ class DataJointWorker:
                 process, worker_name=self.name, db_prefix=self._db_prefix
             )
             if process_type == "dj_table":
-                status = process.populate(**{**_populate_settings, **kwargs})
+                process.schedule_jobs()
+                status = process.populate(**{**_populate_settings, **kwargs, "schedule_jobs": False})
                 if isinstance(status, dict):
                     success_count += status["success_count"] + len(status["error_list"])
             elif process_type == "function":
@@ -358,8 +359,7 @@ class DataJointWorker:
         """
         for process_type, process, _ in self._processes_to_run:
             if process_type == "dj_table":
-                vmod = self._pipeline_modules[process.database]
-                purge_invalid_jobs(vmod.schema.jobs, process)
+                process.purge_jobs()
 
     def run(self) -> None:
         """
@@ -455,37 +455,6 @@ def _clean_up(
 
         # Handle stale reserved jobs
         handle_stale_reserved_jobs(pipeline_module, stale_timeout_hours, action="error")
-
-
-def purge_invalid_jobs(JobTable, table):
-    """
-    Check and remove any invalid/outdated jobs in the JobTable for this autopopulate table
-    Job keys that are in the JobTable (regardless of status) but
-    - are no longer in the `key_source`
-        (e.g. jobs added but entries in upstream table(s) got deleted)
-    - are present in the "target" table
-        (e.g. completed by another process/user)
-    This is potentially a time-consuming process - but should not expect to have to run very often
-    """
-
-    if hasattr(table, "purge_invalid_jobs"):
-        table().purge_invalid_jobs()
-        return
-
-    jobs_query = JobTable & {"table_name": table.table_name}
-
-    if not jobs_query:
-        return
-
-    invalid_removed = 0
-    for key, job_key in zip(*jobs_query.fetch("KEY", "key")):
-        if (not (table.key_source & job_key)) or (table & job_key):
-            (jobs_query & key).delete()
-            invalid_removed += 1
-
-    logger.info(
-        f"\t{invalid_removed} invalid jobs removed for `{dj.utils.to_camel_case(table.table_name)}`"
-    )
 
 
 def handle_stale_reserved_jobs(
